@@ -2,54 +2,81 @@ import { useState } from "react";
 import { ethers } from "ethers";
 
 const abi = [
+  // reads
   "function name() view returns (string)",
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
   "function balanceOf(address) view returns (uint256)",
-  "function transfer(address to, uint256 value) returns (bool)"
+  "function nonces(address) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  // writes
+  "function transfer(address to, uint256 value) returns (bool)",
+  "function approve(address spender, uint256 value) returns (bool)",
+  // EIP-2612
+  "function DOMAIN_SEPARATOR() view returns (bytes32)",
+  "function permit(address owner,address spender,uint256 value,uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
 ];
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS as string;
 
 export default function App() {
+  // base
   const [account, setAccount] = useState<string>("");
   const [tokenName, setTokenName] = useState<string>("");
   const [tokenSymbol, setTokenSymbol] = useState<string>("");
   const [decimals, setDecimals] = useState<number>(18);
   const [balance, setBalance] = useState<string>("");
-  const [msg, setMsg] = useState<string>("");
 
+  // send
   const [to, setTo] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [txHash, setTxHash] = useState<string>("");
-  const [sending, setSending] = useState<boolean>(false);
 
-  function short(addr: string) {
-    return addr ? addr.slice(0, 6) + "…" + addr.slice(-4) : "";
+  // approve / permit / transferFrom
+  const [spender, setSpender] = useState<string>("");
+  const [allowance, setAllowance] = useState<string>("0");
+  const [approveAmount, setApproveAmount] = useState<string>("");
+  const [pullFrom, setPullFrom] = useState<string>(""); // owner address for transferFrom
+  const [pullAmount, setPullAmount] = useState<string>("");
+
+  const [msg, setMsg] = useState<string>("");
+  const [busy, setBusy] = useState<boolean>(false);
+
+  function short(x: string) {
+    return x ? x.slice(0, 6) + "…" + x.slice(-4) : "";
   }
 
+  async function getEth() {
+    const w: any = window;
+    let eth = w.ethereum;
+    if (eth?.providers?.length) {
+      eth = eth.providers.find((p: any) => p.isMetaMask) ?? eth.providers[0];
+    }
+    if (!eth?.request) throw new Error("MetaMask provider nebol nájdený.");
+    return eth;
+  }
+
+  async function getTokenWithSigner() {
+    const eth = await getEth();
+    const provider = new ethers.BrowserProvider(eth);
+    const signer = await provider.getSigner();
+    const token = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+    return { eth, provider, signer, token };
+  }
+
+  // -------- connect & load basics ----------
   async function connect() {
     try {
-      setMsg("");
+      setMsg(""); setTxHash("");
+      const eth = await getEth();
 
-      // vyber MetaMask provider (Brave/viac walletiek)
-      const anyWin = window as any;
-      let eth = anyWin.ethereum;
-      if (eth?.providers?.length) {
-        eth = eth.providers.find((p: any) => p.isMetaMask) ?? eth.providers[0];
-      }
-      if (!eth?.request) {
-        setMsg("MetaMask provider nebol nájdený (skontroluj rozšírenie).");
-        return;
-      }
-
-      // prístup k účtom
+      // request accounts
       await eth.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
       const accounts: string[] = await eth.request({ method: "eth_requestAccounts" });
-      if (!accounts?.length) { setMsg("Žiadny odomknutý účet v MetaMask."); return; }
+      if (!accounts?.length) throw new Error("Žiadny odomknutý účet v MetaMask.");
       setAccount(accounts[0]);
 
-      // prepni na Sepolia
+      // switch to Sepolia if needed
       try {
         await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xAA36A7" }] });
       } catch (e: any) {
@@ -64,20 +91,15 @@ export default function App() {
               blockExplorerUrls: ["https://sepolia.etherscan.io"]
             }]
           });
-        } else {
-          throw e;
-        }
+        } else { throw e; }
       }
 
-      // provider + kontrakt
-      const provider = new ethers.BrowserProvider(eth);
-      const signer = await provider.getSigner();
-      const token = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+      const { provider, signer, token } = await getTokenWithSigner();
 
       const [n, s, d] = await Promise.all([token.name(), token.symbol(), token.decimals()]);
       setTokenName(n); setTokenSymbol(s); setDecimals(Number(d));
 
-      const bal = await token.balanceOf(accounts[0]);
+      const bal = await token.balanceOf(await signer.getAddress());
       setBalance(ethers.formatUnits(bal, Number(d)));
       setMsg("");
     } catch (e: any) {
@@ -85,28 +107,17 @@ export default function App() {
     }
   }
 
+  // -------- simple transfer ----------
   async function send() {
     try {
-      setMsg(""); setTxHash("");
-      if (!account) { setMsg("Najprv sa pripoj peňaženkou."); return; }
-      if (!ethers.isAddress(to)) { setMsg("Neplatná adresa príjemcu."); return; }
-      if (!amount || Number(amount) <= 0) { setMsg("Zadaj kladnú sumu."); return; }
+      setMsg(""); setTxHash(""); setBusy(true);
+      if (!ethers.isAddress(to)) throw new Error("Neplatná adresa príjemcu.");
+      if (!amount || Number(amount) <= 0) throw new Error("Zadaj kladnú sumu.");
 
-      const anyWin = window as any;
-      let eth = anyWin.ethereum;
-      if (eth?.providers?.length) {
-        eth = eth.providers.find((p: any) => p.isMetaMask) ?? eth.providers[0];
-      }
-      if (!eth?.request) { setMsg("MetaMask provider nebol nájdený."); return; }
-
-      const provider = new ethers.BrowserProvider(eth);
-      const signer = await provider.getSigner();
-      const token = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-
+      const { signer, token } = await getTokenWithSigner();
       const d: number = await token.decimals();
       const value = ethers.parseUnits(amount.trim(), d);
 
-      setSending(true);
       const tx = await token.transfer(to, value);
       setTxHash(tx.hash);
       await tx.wait();
@@ -115,89 +126,269 @@ export default function App() {
       setBalance(ethers.formatUnits(bal, d));
       setMsg("Transakcia odoslaná a potvrdená.");
     } catch (e: any) {
-      if (e?.code === 4001) setMsg("Transakcia odmietnutá v MetaMask.");
-      else setMsg(e?.message ?? String(e));
-    } finally {
-      setSending(false);
-    }
+      setMsg(e?.code === 4001 ? "Transakcia odmietnutá v MetaMask." : (e?.message ?? String(e)));
+    } finally { setBusy(false); }
+  }
+
+  // -------- approve (classic) ----------
+  async function doApprove() {
+    try {
+      setMsg(""); setBusy(true);
+      if (!ethers.isAddress(spender)) throw new Error("Neplatná adresa spendera.");
+      if (!approveAmount || Number(approveAmount) <= 0) throw new Error("Zadaj kladnú sumu.");
+
+      const { signer, token } = await getTokenWithSigner();
+      const d: number = await token.decimals();
+      const value = ethers.parseUnits(approveAmount.trim(), d);
+
+      const tx = await token.approve(spender, value);
+      setTxHash(tx.hash);
+      await tx.wait();
+
+      const alw = await token.allowance(await signer.getAddress(), spender);
+      setAllowance(ethers.formatUnits(alw, d));
+      setMsg("Approve hotový.");
+    } catch (e: any) {
+      setMsg(e?.code === 4001 ? "Operácia odmietnutá v MetaMask." : (e?.message ?? String(e)));
+    } finally { setBusy(false); }
+  }
+
+  async function checkAllowance() {
+    try {
+      setMsg(""); setBusy(true);
+      if (!ethers.isAddress(spender)) throw new Error("Neplatná adresa spendera.");
+      const { signer, token } = await getTokenWithSigner();
+      const d: number = await token.decimals();
+      const alw = await token.allowance(await signer.getAddress(), spender);
+      setAllowance(ethers.formatUnits(alw, d));
+    } catch (e: any) {
+      setMsg(e?.message ?? String(e));
+    } finally { setBusy(false); }
+  }
+
+  // -------- permit (EIP-2612) ----------
+  async function doPermit() {
+    try {
+      setMsg(""); setBusy(true);
+      if (!ethers.isAddress(spender)) throw new Error("Neplatná adresa spendera.");
+      if (!approveAmount || Number(approveAmount) <= 0) throw new Error("Zadaj kladnú sumu.");
+
+      const { provider, signer, token } = await getTokenWithSigner();
+      const owner = await signer.getAddress();
+      const d: number = await token.decimals();
+      const value = ethers.parseUnits(approveAmount.trim(), d);
+      const nonce = await token.nonces(owner);
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId); // v6 vracia bigint
+
+      // EIP-712 domain + types
+      const name = await token.name();
+      const domain = {
+        name,
+        version: "1",
+        chainId,
+        verifyingContract: CONTRACT_ADDRESS,
+      } as const;
+
+      const types = {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      } as const;
+
+      const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // 10 min
+
+      // podpíš typed data
+      const signature = await signer.signTypedData(domain, types as any, {
+        owner,
+        spender,
+        value,
+        nonce,
+        deadline,
+      });
+
+      const sig = ethers.Signature.from(signature);
+      // zavolaj permit na tokene (on-chain)
+      const tx = await token.permit(owner, spender, value, deadline, sig.v, sig.r, sig.s);
+      setTxHash(tx.hash);
+      await tx.wait();
+
+      // načítaj allowance po permit-e
+      const alw = await token.allowance(owner, spender);
+      setAllowance(ethers.formatUnits(alw, d));
+      setMsg("Permit hotový (gasless approve podpísaný, on-chain potvrdený).");
+    } catch (e: any) {
+      setMsg(e?.code === 4001 ? "Podpis odmietnutý v MetaMask." : (e?.message ?? String(e)));
+    } finally { setBusy(false); }
+  }
+
+  // -------- transferFrom (current account musí byť SPENDER) ----------
+  async function doTransferFrom() {
+    try {
+      setMsg(""); setBusy(true);
+      if (!ethers.isAddress(pullFrom)) throw new Error("Neplatná adresa ownera (pullFrom).");
+      if (!pullAmount || Number(pullAmount) <= 0) throw new Error("Zadaj kladnú sumu.");
+
+      const { signer, token } = await getTokenWithSigner();
+      const d: number = await token.decimals();
+      const value = ethers.parseUnits(pullAmount.trim(), d);
+
+      // volajúci = aktuálne pripojený účet (spender), potiahne tokeny z pullFrom na SEBA
+      const me = await signer.getAddress();
+      const tx = await token.transferFrom(pullFrom, me, value);
+      setTxHash(tx.hash);
+      await tx.wait();
+
+      const bal = await token.balanceOf(me);
+      setBalance(ethers.formatUnits(bal, d));
+      setMsg("transferFrom hotový.");
+    } catch (e: any) {
+      setMsg(e?.code === 4001 ? "Operácia odmietnutá v MetaMask." : (e?.message ?? String(e)));
+    } finally { setBusy(false); }
   }
 
   return (
-  <div
-    style={{
-      minHeight: "100vh",
-      display: "grid",
-      placeItems: "center",      // horizontálne aj vertikálne centrovanie
-      background: "#111",
-      color: "#eee",
-      padding: 16
-    }}
-  >
     <div
       style={{
-        width: "100%",
-        maxWidth: 560,
-        borderRadius: 16,
-        padding: 24,
-        border: "1px solid #2a2a2a",
-        background: "#1b1b1b",
-        boxShadow: "0 10px 30px rgba(0,0,0,.35)"
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        background: "#111",
+        color: "#eee",
+        padding: 16,
       }}
     >
-      {/* ⬇️ sem nechaj svoj pôvodný obsah (nadpis, Connect, info, Send STK) */}
-      <h2 style={{ marginTop: 0 }}>SimpleToken dApp</h2>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 720,
+          borderRadius: 16,
+          padding: 24,
+          border: "1px solid #2a2a2a",
+          background: "#1b1b1b",
+          boxShadow: "0 10px 30px rgba(0,0,0,.35)",
+        }}
+      >
+        <h2 style={{ marginTop: 0 }}>SimpleToken dApp</h2>
 
-      <button onClick={connect} style={{ padding: "10px 14px", borderRadius: 10 }}>
-        {account ? "Connected ✅" : "Connect Wallet"}
-      </button>
+        <button onClick={connect} style={{ padding: "10px 14px", borderRadius: 10 }}>
+          {account ? "Connected ✅" : "Connect Wallet"}
+        </button>
 
-      {account && (
-        <div style={{ marginTop: 16 }}>
-          <div><b>Account:</b> {account}</div>
-          <div><b>Network:</b> Sepolia (expected)</div>
-          <div style={{ marginTop: 8 }}>
-            <b>Token:</b> {tokenName} ({tokenSymbol})<br />
-            <b>Balance:</b> {balance || "0"} {tokenSymbol}
-          </div>
-        </div>
-      )}
-
-      {account && (
-        <div style={{ marginTop: 20, padding: 12, border: "1px solid #2a2a2a", borderRadius: 12 }}>
-          <h3 style={{ marginTop: 0 }}>Send STK</h3>
-          <div style={{ display: "grid", gap: 8 }}>
-            <input
-              placeholder="Recipient address (0x...)"
-              value={to}
-              onChange={(e) => setTo(e.target.value.trim())}
-              style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
-            />
-            <input
-              placeholder="Amount (e.g. 1.5)"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
-            />
-            <button onClick={send} disabled={sending} style={{ padding: "10px 14px", borderRadius: 10 }}>
-              {sending ? "Sending..." : "Send STK"}
-            </button>
-          </div>
-          {txHash && (
-            <div style={{ marginTop: 10 }}>
-              <b>Tx:</b>{" "}
-              <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noreferrer">
-                {txHash.slice(0, 10)}…
-              </a>
+        {account && (
+          <div style={{ marginTop: 16 }}>
+            <div><b>Account:</b> {account}</div>
+            <div><b>Network:</b> Sepolia (expected)</div>
+            <div style={{ marginTop: 8 }}>
+              <b>Token:</b> {tokenName} ({tokenSymbol})<br />
+              <b>Balance:</b> {balance || "0"} {tokenSymbol}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {msg && (
-        <div style={{ marginTop: 16, padding: 10, background: "#3b2f1b", border: "1px solid #6d5a2d", borderRadius: 8 }}>
-          {msg}
-        </div>
-      )}
+        {/* SEND */}
+        {account && (
+          <section style={{ marginTop: 20, padding: 16, border: "1px solid #2a2a2a", borderRadius: 12 }}>
+            <h3 style={{ marginTop: 0 }}>Send STK</h3>
+            <div style={{ display: "grid", gap: 8 }}>
+              <input
+                placeholder="Recipient address (0x...)"
+                value={to}
+                onChange={(e) => setTo(e.target.value.trim())}
+                style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
+              />
+              <input
+                placeholder="Amount (e.g. 1.5)"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
+              />
+              <button onClick={send} disabled={busy} style={{ padding: "10px 14px", borderRadius: 10 }}>
+                {busy ? "Working..." : "Send STK"}
+              </button>
+            </div>
+            {txHash && (
+              <div style={{ marginTop: 10 }}>
+                <b>Tx:</b>{" "}
+                <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noreferrer">
+                  {short(txHash)}
+                </a>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* APPROVE / PERMIT */}
+        {account && (
+          <section style={{ marginTop: 20, padding: 16, border: "1px solid #2a2a2a", borderRadius: 12 }}>
+            <h3 style={{ marginTop: 0 }}>Approve / Permit</h3>
+            <div style={{ display: "grid", gap: 8 }}>
+              <input
+                placeholder="Spender (0x...)"
+                value={spender}
+                onChange={(e) => setSpender(e.target.value.trim())}
+                style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
+              />
+              <input
+                placeholder="Amount to approve (e.g. 5)"
+                value={approveAmount}
+                onChange={(e) => setApproveAmount(e.target.value)}
+                style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
+              />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={doApprove} disabled={busy} style={{ padding: "10px 14px", borderRadius: 10 }}>
+                  {busy ? "Working..." : "Approve"}
+                </button>
+                <button onClick={doPermit} disabled={busy} style={{ padding: "10px 14px", borderRadius: 10 }}>
+                  {busy ? "Working..." : "Permit (EIP-2612)"}
+                </button>
+                <button onClick={checkAllowance} disabled={busy} style={{ padding: "10px 14px", borderRadius: 10 }}>
+                  {busy ? "Working..." : "Check Allowance"}
+                </button>
+              </div>
+              <div><b>Allowance:</b> {allowance} {tokenSymbol}</div>
+            </div>
+          </section>
+        )}
+
+        {/* transferFrom (volá SPENDER) */}
+        {account && (
+          <section style={{ marginTop: 20, padding: 16, border: "1px solid #2a2a2a", borderRadius: 12 }}>
+            <h3 style={{ marginTop: 0 }}>transferFrom (as spender)</h3>
+            <p style={{ marginTop: 0, opacity: .8 }}>
+              Najprv sa pripoj ako <b>owner</b> a nastav approve/permit pre <b>spendera</b>. Potom v MetaMask prepni
+              účet na toho <b>spendera</b> a tu potiahni tokeny z ownera na seba.
+            </p>
+            <div style={{ display: "grid", gap: 8 }}>
+              <input
+                placeholder="Pull from (owner address 0x...)"
+                value={pullFrom}
+                onChange={(e) => setPullFrom(e.target.value.trim())}
+                style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
+              />
+              <input
+                placeholder="Amount to pull (e.g. 1.2)"
+                value={pullAmount}
+                onChange={(e) => setPullAmount(e.target.value)}
+                style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
+              />
+              <button onClick={doTransferFrom} disabled={busy} style={{ padding: "10px 14px", borderRadius: 10 }}>
+                {busy ? "Working..." : "transferFrom"}
+              </button>
+            </div>
+          </section>
+        )}
+
+        {msg && (
+          <div style={{ marginTop: 16, padding: 10, background: "#3b2f1b", border: "1px solid #6d5a2d", borderRadius: 8 }}>
+            {msg}
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+}
