@@ -63,42 +63,43 @@ export default function App() {
 
   // ---------- CONNECT ----------
   async function connect() {
+  try {
+    setMsg(""); setTxHash("");
+    const eth = await getEth();
+
+    // účty
+    await eth.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+    const accs: string[] = await eth.request({ method: "eth_requestAccounts" });
+    if (!accs?.length) throw new Error("Žiadny odomknutý účet v MetaMask.");
+    setAccount(accs[0]);
+
+    // Sepolia
     try {
-      setMsg(""); setTxHash("");
-      const eth = await getEth();
+      await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xAA36A7" }] });
+    } catch (e: any) {
+      if (e?.code === 4902) {
+        await eth.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0xAA36A7",
+            chainName: "Sepolia",
+            nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
+            rpcUrls: ["https://rpc.sepolia.org"],
+            blockExplorerUrls: ["https://sepolia.etherscan.io"]
+          }]
+        });
+      } else { throw e; }
+    }
 
-      // úcty
-      await eth.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
-      const accs: string[] = await eth.request({ method: "eth_requestAccounts" });
-      if (!accs?.length) throw new Error("Žiadny odomknutý úcet v MetaMask.");
-      setAccount(accs[0]);
+    const { signer, token } = await getTokenWithSigner();
+    const [n, s, d] = await Promise.all([token.name(), token.symbol(), token.decimals()]);
+    setTokenName(n); setTokenSymbol(s); setDecimals(Number(d));
 
-      // Sepolia
-      try {
-        await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xAA36A7" }] });
-      } catch (e: any) {
-        if (e?.code === 4902) {
-          await eth.request({
-            method: "wallet_addEthereumChain",
-            params: [{
-              chainId: "0xAA36A7",
-              chainName: "Sepolia",
-              nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
-              rpcUrls: ["https://rpc.sepolia.org"],
-              blockExplorerUrls: ["https://sepolia.etherscan.io"]
-            }]
-          });
-        } else { throw e; }
-      }
-
-      const { signer, token } = await getTokenWithSigner();
-      const [n, s, d] = await Promise.all([token.name(), token.symbol(), token.decimals()]);
-      setTokenName(n); setTokenSymbol(s); setDecimals(Number(d));
-
-      const bal = await token.balanceOf(await signer.getAddress());
-      setBalance(ethers.formatUnits(bal, Number(d)));
-    } catch (e: any) { setMsg(e?.message ?? String(e)); }
-  }
+    const bal = await token.balanceOf(await signer.getAddress());
+    // Zmena: použite premennú decimals namiesto d
+    setBalance(ethers.formatUnits(bal, decimals));
+  } catch (e: any) { setMsg(e?.message ?? String(e)); }
+}
 
   // ---------- SEND ----------
   async function send() {
