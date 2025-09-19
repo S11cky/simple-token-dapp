@@ -1,11 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ethers } from "ethers";
-import abi from "./abi.json"; // uisti sa, že máš ABI v src/abi.json
 
-const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
+const abi = [
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
+  "function transfer(address to, uint256 value) returns (bool)"
+];
 
-function App() {
+const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS as string;
+
+export default function App() {
   const [account, setAccount] = useState<string>("");
+  const [tokenName, setTokenName] = useState<string>("");
+  const [tokenSymbol, setTokenSymbol] = useState<string>("");
+  const [decimals, setDecimals] = useState<number>(18);
   const [balance, setBalance] = useState<string>("");
   const [msg, setMsg] = useState<string>("");
 
@@ -14,7 +24,6 @@ function App() {
   const [txHash, setTxHash] = useState<string>("");
   const [sending, setSending] = useState<boolean>(false);
 
-  // Helper
   function short(addr: string) {
     return addr ? addr.slice(0, 6) + "…" + addr.slice(-4) : "";
   }
@@ -22,29 +31,55 @@ function App() {
   async function connect() {
     try {
       setMsg("");
+
+      // vyber MetaMask provider (Brave/viac walletiek)
       const anyWin = window as any;
       let eth = anyWin.ethereum;
-
       if (eth?.providers?.length) {
-        // ak je viac providerov (napr. Brave + MetaMask), vyberieme MetaMask
         eth = eth.providers.find((p: any) => p.isMetaMask) ?? eth.providers[0];
       }
-
       if (!eth?.request) {
-        setMsg("MetaMask provider nebol nájdený.");
+        setMsg("MetaMask provider nebol nájdený (skontroluj rozšírenie).");
         return;
       }
 
-      const [addr] = await eth.request({ method: "eth_requestAccounts" });
-      setAccount(addr);
+      // prístup k účtom
+      await eth.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+      const accounts: string[] = await eth.request({ method: "eth_requestAccounts" });
+      if (!accounts?.length) { setMsg("Žiadny odomknutý účet v MetaMask."); return; }
+      setAccount(accounts[0]);
 
+      // prepni na Sepolia
+      try {
+        await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xAA36A7" }] });
+      } catch (e: any) {
+        if (e?.code === 4902) {
+          await eth.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: "0xAA36A7",
+              chainName: "Sepolia",
+              nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
+              rpcUrls: ["https://rpc.sepolia.org"],
+              blockExplorerUrls: ["https://sepolia.etherscan.io"]
+            }]
+          });
+        } else {
+          throw e;
+        }
+      }
+
+      // provider + kontrakt
       const provider = new ethers.BrowserProvider(eth);
       const signer = await provider.getSigner();
       const token = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
 
-      const d: number = await token.decimals();
-      const bal = await token.balanceOf(addr);
-      setBalance(ethers.formatUnits(bal, d));
+      const [n, s, d] = await Promise.all([token.name(), token.symbol(), token.decimals()]);
+      setTokenName(n); setTokenSymbol(s); setDecimals(Number(d));
+
+      const bal = await token.balanceOf(accounts[0]);
+      setBalance(ethers.formatUnits(bal, Number(d)));
+      setMsg("");
     } catch (e: any) {
       setMsg(e?.message ?? String(e));
     }
@@ -52,49 +87,33 @@ function App() {
 
   async function send() {
     try {
-      setMsg("");
-      setTxHash("");
-      if (!account) {
-        setMsg("Najprv sa pripoj peňaženkou.");
-        return;
-      }
+      setMsg(""); setTxHash("");
+      if (!account) { setMsg("Najprv sa pripoj peňaženkou."); return; }
+      if (!ethers.isAddress(to)) { setMsg("Neplatná adresa príjemcu."); return; }
+      if (!amount || Number(amount) <= 0) { setMsg("Zadaj kladnú sumu."); return; }
 
       const anyWin = window as any;
       let eth = anyWin.ethereum;
       if (eth?.providers?.length) {
         eth = eth.providers.find((p: any) => p.isMetaMask) ?? eth.providers[0];
       }
-      if (!eth?.request) {
-        setMsg("MetaMask provider nebol nájdený.");
-        return;
-      }
-
-      if (!ethers.isAddress(to)) {
-        setMsg("Neplatná adresa príjemcu.");
-        return;
-      }
-
-      const amt = amount.trim();
-      if (!amt || isNaN(Number(amt)) || Number(amt) <= 0) {
-        setMsg("Zadaj kladnú sumu.");
-        return;
-      }
+      if (!eth?.request) { setMsg("MetaMask provider nebol nájdený."); return; }
 
       const provider = new ethers.BrowserProvider(eth);
       const signer = await provider.getSigner();
       const token = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
 
       const d: number = await token.decimals();
-      const value = ethers.parseUnits(amt, d);
+      const value = ethers.parseUnits(amount.trim(), d);
 
       setSending(true);
       const tx = await token.transfer(to, value);
       setTxHash(tx.hash);
+      await tx.wait();
 
-      const receipt = await tx.wait(); // čaká na potvrdenie
       const bal = await token.balanceOf(await signer.getAddress());
       setBalance(ethers.formatUnits(bal, d));
-      setMsg(`Hotovo: ${receipt?.status === 1 ? "úspech" : "neznámy stav"}`);
+      setMsg("Transakcia odoslaná a potvrdená.");
     } catch (e: any) {
       if (e?.code === 4001) setMsg("Transakcia odmietnutá v MetaMask.");
       else setMsg(e?.message ?? String(e));
@@ -104,26 +123,20 @@ function App() {
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: "40px auto", fontFamily: "sans-serif" }}>
-      <h1>SimpleToken dApp</h1>
+    <div style={{ maxWidth: 560, margin: "40px auto", fontFamily: "Inter, system-ui, Arial" }}>
+      <h2>SimpleToken dApp</h2>
 
       {!account && (
-        <button
-          onClick={connect}
-          style={{ padding: "10px 14px", borderRadius: 10, cursor: "pointer" }}
-        >
+        <button onClick={connect} style={{ padding: "10px 14px", borderRadius: 10 }}>
           Connect Wallet
         </button>
       )}
 
       {account && (
-        <div>
-          <p>
-            <b>Account:</b> {short(account)}
-          </p>
-          <p>
-            <b>Balance:</b> {balance} STK
-          </p>
+        <div style={{ marginTop: 16 }}>
+          <div><b>Account:</b> {short(account)}</div>
+          <div><b>Token:</b> {tokenName} ({tokenSymbol})</div>
+          <div><b>Balance:</b> {balance || "0"} {tokenSymbol}</div>
         </div>
       )}
 
@@ -143,37 +156,23 @@ function App() {
               onChange={(e) => setAmount(e.target.value)}
               style={{ padding: 8, borderRadius: 8, border: "1px solid #ddd" }}
             />
-            <button
-              onClick={send}
-              disabled={sending}
-              style={{ padding: "10px 14px", borderRadius: 10, cursor: "pointer" }}
-            >
+            <button onClick={send} disabled={sending} style={{ padding: "10px 14px", borderRadius: 10 }}>
               {sending ? "Sending..." : "Send STK"}
             </button>
           </div>
-
           {txHash && (
             <div style={{ marginTop: 10 }}>
-              <b>Tx:</b>{" "}
-              <a
-                href={`https://sepolia.etherscan.io/tx/${txHash}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {short(txHash)}
-              </a>
+              <b>Tx:</b> <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noreferrer">{short(txHash)}</a>
             </div>
           )}
         </div>
       )}
 
       {msg && (
-        <p style={{ marginTop: 20, color: "crimson" }}>
-          <b>{msg}</b>
-        </p>
+        <div style={{ marginTop: 16, padding: 10, background: "#fff3cd", border: "1px solid #ffeeba", borderRadius: 8 }}>
+          {msg}
+        </div>
       )}
     </div>
   );
 }
-
-export default App;
