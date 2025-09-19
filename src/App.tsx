@@ -1,4 +1,4 @@
-import { useState } from "react";
+ï»¿import { useState } from "react";
 import { ethers } from "ethers";
 
 /** Minimal ABI pre ERC-20 + EIP-2612 */
@@ -43,14 +43,14 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
-  function short(x: string) { return x ? x.slice(0, 6) + "…" + x.slice(-4) : ""; }
+  function short(x: string) { return x ? x.slice(0, 6) + "â€¦" + x.slice(-4) : ""; }
 
-  /** získa MetaMask provider, uprednostní isMetaMask (kvôli Brave) */
+  /** zÃ­ska MetaMask provider, uprednostnÃ­ isMetaMask (kvÃ´li Brave) */
   async function getEth() {
     const w: any = window;
     let eth = w.ethereum;
     if (eth?.providers?.length) eth = eth.providers.find((p: any) => p.isMetaMask) ?? eth.providers[0];
-    if (!eth?.request) throw new Error("MetaMask provider nebol nájdený.");
+    if (!eth?.request) throw new Error("MetaMask provider nebol nÃ¡jdenÃ½.");
     return eth;
   }
   async function getTokenWithSigner() {
@@ -67,10 +67,10 @@ export default function App() {
       setMsg(""); setTxHash("");
       const eth = await getEth();
 
-      // úcty
+      // Ãºcty
       await eth.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
       const accs: string[] = await eth.request({ method: "eth_requestAccounts" });
-      if (!accs?.length) throw new Error("Žiadny odomknutý úcet v MetaMask.");
+      if (!accs?.length) throw new Error("Å½iadny odomknutÃ½ Ãºcet v MetaMask.");
       setAccount(accs[0]);
 
       // Sepolia
@@ -104,8 +104,8 @@ export default function App() {
   async function send() {
     try {
       setBusy(true); setMsg(""); setTxHash("");
-      if (!ethers.isAddress(to)) throw new Error("Neplatná adresa príjemcu.");
-      if (!amount || Number(amount) <= 0) throw new Error("Zadaj kladnú sumu.");
+      if (!ethers.isAddress(to)) throw new Error("NeplatnÃ¡ adresa prÃ­jemcu.");
+      if (!amount || Number(amount) <= 0) throw new Error("Zadaj kladnÃº sumu.");
 
       const { signer, token } = await getTokenWithSigner();
       const d: number = await token.decimals();
@@ -116,8 +116,8 @@ export default function App() {
 
       const bal = await token.balanceOf(await signer.getAddress());
       setBalance(ethers.formatUnits(bal, d));
-      setMsg("Transakcia odoslaná a potvrdená.");
-    } catch (e: any) { setMsg(e?.code === 4001 ? "Transakcia odmietnutá v MetaMask." : (e?.message ?? String(e))); }
+      setMsg("Transakcia odoslanÃ¡ a potvrdenÃ¡.");
+    } catch (e: any) { setMsg(e?.code === 4001 ? "Transakcia odmietnutÃ¡ v MetaMask." : (e?.message ?? String(e))); }
     finally { setBusy(false); }
   }
 
@@ -125,8 +125,8 @@ export default function App() {
   async function doApprove() {
     try {
       setBusy(true); setMsg(""); setTxHash("");
-      if (!ethers.isAddress(spender)) throw new Error("Neplatná adresa spendera.");
-      if (!approveAmount || Number(approveAmount) <= 0) throw new Error("Zadaj kladnú sumu.");
+      if (!ethers.isAddress(spender)) throw new Error("NeplatnÃ¡ adresa spendera.");
+      if (!approveAmount || Number(approveAmount) <= 0) throw new Error("Zadaj kladnÃº sumu.");
 
       const { signer, token } = await getTokenWithSigner();
       const d: number = await token.decimals();
@@ -137,14 +137,14 @@ export default function App() {
 
       const alw = await token.allowance(await signer.getAddress(), spender);
       setAllowanceView(ethers.formatUnits(alw, d));
-      setMsg("Approve hotový.");
-    } catch (e: any) { setMsg(e?.code === 4001 ? "Operácia odmietnutá v MetaMask." : (e?.message ?? String(e))); }
+      setMsg("Approve hotovÃ½.");
+    } catch (e: any) { setMsg(e?.code === 4001 ? "OperÃ¡cia odmietnutÃ¡ v MetaMask." : (e?.message ?? String(e))); }
     finally { setBusy(false); }
   }
   async function checkAllowance() {
     try {
       setBusy(true); setMsg("");
-      if (!ethers.isAddress(spender)) throw new Error("Neplatná adresa spendera.");
+      if (!ethers.isAddress(spender)) throw new Error("NeplatnÃ¡ adresa spendera.");
       const { signer, token } = await getTokenWithSigner();
       const d: number = await token.decimals();
       const alw = await token.allowance(await signer.getAddress(), spender);
@@ -157,8 +157,8 @@ export default function App() {
   async function doPermit() {
     try {
       setBusy(true); setMsg(""); setTxHash("");
-      if (!ethers.isAddress(spender)) throw new Error("Neplatná adresa spendera.");
-      if (!approveAmount || Number(approveAmount) <= 0) throw new Error("Zadaj kladnú sumu.");
+      if (!ethers.isAddress(spender)) throw new Error("NeplatnÃ¡ adresa spendera.");
+      if (!approveAmount || Number(approveAmount) <= 0) throw new Error("Zadaj kladnÃº sumu.");
 
       const { provider, signer, token } = await getTokenWithSigner();
       const owner = await signer.getAddress();
@@ -192,31 +192,31 @@ export default function App() {
 
       const alw = await token.allowance(owner, spender);
       setAllowanceView(ethers.formatUnits(alw, d));
-      setMsg("Permit hotový (gasless approve podpísaný, on-chain potvrdený).");
-    } catch (e: any) { setMsg(e?.code === 4001 ? "Podpis/operácia odmietnutá v MetaMask." : (e?.message ?? String(e))); }
+      setMsg("Permit hotovÃ½ (gasless approve podpÃ­sanÃ½, on-chain potvrdenÃ½).");
+    } catch (e: any) { setMsg(e?.code === 4001 ? "Podpis/operÃ¡cia odmietnutÃ¡ v MetaMask." : (e?.message ?? String(e))); }
     finally { setBusy(false); }
   }
 
-  // ---------- transferFrom (aktuálny úcet = spender) ----------
+  // ---------- transferFrom (aktuÃ¡lny Ãºcet = spender) ----------
   async function doTransferFrom() {
     try {
       setBusy(true); setMsg(""); setTxHash("");
-      if (!ethers.isAddress(pullFrom)) throw new Error("Neplatná adresa ownera (pullFrom).");
-      if (!pullAmount || Number(pullAmount) <= 0) throw new Error("Zadaj kladnú sumu.");
+      if (!ethers.isAddress(pullFrom)) throw new Error("NeplatnÃ¡ adresa ownera (pullFrom).");
+      if (!pullAmount || Number(pullAmount) <= 0) throw new Error("Zadaj kladnÃº sumu.");
 
       const { signer, token } = await getTokenWithSigner();
       const d: number = await token.decimals();
       const value = ethers.parseUnits(pullAmount.trim(), d);
 
-      const me = await signer.getAddress(); // príjemca = spender
+      const me = await signer.getAddress(); // prÃ­jemca = spender
       const tx = await token.transferFrom(pullFrom, me, value);
       setTxHash(tx.hash);
       await tx.wait();
 
       const bal = await token.balanceOf(me);
       setBalance(ethers.formatUnits(bal, d));
-      setMsg("transferFrom hotový.");
-    } catch (e: any) { setMsg(e?.code === 4001 ? "Operácia odmietnutá v MetaMask." : (e?.message ?? String(e))); }
+      setMsg("transferFrom hotovÃ½.");
+    } catch (e: any) { setMsg(e?.code === 4001 ? "OperÃ¡cia odmietnutÃ¡ v MetaMask." : (e?.message ?? String(e))); }
     finally { setBusy(false); }
   }
 
@@ -279,12 +279,12 @@ export default function App() {
           </section>
         )}
 
-        {/* transferFrom = volá SPENDER */}
+        {/* transferFrom = volÃ¡ SPENDER */}
         {account && (
           <section style={{ marginTop: 20, padding: 16, border: "1px solid #2a2a2a", borderRadius: 12 }}>
             <h3 style={{ marginTop: 0 }}>transferFrom (as spender)</h3>
             <p style={{ marginTop: 0, opacity: .8 }}>
-              Najprv sa pripoj ako <b>owner</b> a urob approve/permit pre <b>spendera</b>. Potom v MetaMask prepni úcet na toho
+              Najprv sa pripoj ako <b>owner</b> a urob approve/permit pre <b>spendera</b>. Potom v MetaMask prepni Ãºcet na toho
               <b> spendera</b> a tu potiahni tokeny z ownera na seba.
             </p>
             <div style={{ display: "grid", gap: 8 }}>
@@ -306,3 +306,4 @@ export default function App() {
     </div>
   );
 }
+
