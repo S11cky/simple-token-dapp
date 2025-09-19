@@ -123,38 +123,60 @@ export default function App() {
   }
 
   return (
-    <div style={{ maxWidth: 560, margin: "40px auto", fontFamily: "Inter, system-ui, Arial" }}>
-      <h2>SimpleToken dApp</h2>
+  <div
+    style={{
+      minHeight: "100vh",
+      display: "grid",
+      placeItems: "center",      // horizontálne aj vertikálne centrovanie
+      background: "#111",
+      color: "#eee",
+      padding: 16
+    }}
+  >
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 560,
+        borderRadius: 16,
+        padding: 24,
+        border: "1px solid #2a2a2a",
+        background: "#1b1b1b",
+        boxShadow: "0 10px 30px rgba(0,0,0,.35)"
+      }}
+    >
+      {/* ⬇️ sem nechaj svoj pôvodný obsah (nadpis, Connect, info, Send STK) */}
+      <h2 style={{ marginTop: 0 }}>SimpleToken dApp</h2>
 
-      {!account && (
-        <button onClick={connect} style={{ padding: "10px 14px", borderRadius: 10 }}>
-          Connect Wallet
-        </button>
-      )}
+      <button onClick={connect} style={{ padding: "10px 14px", borderRadius: 10 }}>
+        {account ? "Connected ✅" : "Connect Wallet"}
+      </button>
 
       {account && (
         <div style={{ marginTop: 16 }}>
-          <div><b>Account:</b> {short(account)}</div>
-          <div><b>Token:</b> {tokenName} ({tokenSymbol})</div>
-          <div><b>Balance:</b> {balance || "0"} {tokenSymbol}</div>
+          <div><b>Account:</b> {account}</div>
+          <div><b>Network:</b> Sepolia (expected)</div>
+          <div style={{ marginTop: 8 }}>
+            <b>Token:</b> {tokenName} ({tokenSymbol})<br />
+            <b>Balance:</b> {balance || "0"} {tokenSymbol}
+          </div>
         </div>
       )}
 
       {account && (
-        <div style={{ marginTop: 20, padding: 12, border: "1px solid #eee", borderRadius: 8 }}>
-          <h3>Send STK</h3>
+        <div style={{ marginTop: 20, padding: 12, border: "1px solid #2a2a2a", borderRadius: 12 }}>
+          <h3 style={{ marginTop: 0 }}>Send STK</h3>
           <div style={{ display: "grid", gap: 8 }}>
             <input
               placeholder="Recipient address (0x...)"
               value={to}
               onChange={(e) => setTo(e.target.value.trim())}
-              style={{ padding: 8, borderRadius: 8, border: "1px solid #ddd" }}
+              style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
             />
             <input
               placeholder="Amount (e.g. 1.5)"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              style={{ padding: 8, borderRadius: 8, border: "1px solid #ddd" }}
+              style={{ padding: 8, borderRadius: 8, border: "1px solid #333", background: "#222", color: "#eee" }}
             />
             <button onClick={send} disabled={sending} style={{ padding: "10px 14px", borderRadius: 10 }}>
               {sending ? "Sending..." : "Send STK"}
@@ -162,17 +184,20 @@ export default function App() {
           </div>
           {txHash && (
             <div style={{ marginTop: 10 }}>
-              <b>Tx:</b> <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noreferrer">{short(txHash)}</a>
+              <b>Tx:</b>{" "}
+              <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noreferrer">
+                {txHash.slice(0, 10)}…
+              </a>
             </div>
           )}
         </div>
       )}
 
       {msg && (
-        <div style={{ marginTop: 16, padding: 10, background: "#fff3cd", border: "1px solid #ffeeba", borderRadius: 8 }}>
+        <div style={{ marginTop: 16, padding: 10, background: "#3b2f1b", border: "1px solid #6d5a2d", borderRadius: 8 }}>
           {msg}
         </div>
       )}
     </div>
-  );
-}
+  </div>
+);
